@@ -1,0 +1,5 @@
+{
+  "name": "Tech Spec Generator",
+  "description": "An AI assistant to help generate technical specifications for frontend web applications.",
+  "requestFramePermissions": []
+}
