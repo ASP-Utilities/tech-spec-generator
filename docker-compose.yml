@@ -1,0 +1,100 @@
+# Docker Compose configuration for Tech Spec Generator
+# Note: Cannot be tested on AWS Workspace due to nested virtualization limitations
+# This file is provided for reference and deployment in environments that support Docker
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: tech-spec-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-jcwZ4aBSbCf5gv7ozYvf}
+      POSTGRES_DB: tech_spec_gen
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./tech-spec-generator-api/prisma/schema.prisma:/docker-entrypoint-initdb.d/schema.prisma:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tech-spec-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./tech-spec-generator-api
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+    container_name: tech-spec-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-jcwZ4aBSbCf5gv7ozYvf}@postgres:5432/tech_spec_gen
+      FRONTEND_URL: http://localhost:3000
+      SERVICE_NAME: tech-spec-generator-api
+      LOG_LEVEL: info
+      # GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      # GOOGLE_APPLICATION_CREDENTIALS: /app/keys/service-account.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - tech-spec-network
+    # Uncomment for GCP service account key
+    # volumes:
+    #   - ./tech-spec-generator-api/keys:/app/keys:ro
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./tech-spec-generator
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:3001
+        - VITE_SERVICE_NAME=tech-spec-generator
+        - GEMINI_API_KEY=${GEMINI_API_KEY}
+    container_name: tech-spec-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    environment:
+      NGINX_PORT: 8080
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - tech-spec-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  tech-spec-network:
+    driver: bridge
+
