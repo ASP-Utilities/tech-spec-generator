@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CopyIcon } from './icons/CopyIcon';
+import logger from '../src/config/logger';
 
 interface CopyButtonProps {
   textToCopy: string;
@@ -11,7 +12,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({ textToCopy }) => {
   const handleCopy = async () => {
     if (!navigator.clipboard) {
         // Fallback for non-secure contexts
-        console.error('Clipboard API not available.');
+        logger.error('Clipboard API not available');
         return;
     }
     try {
@@ -19,7 +20,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({ textToCopy }) => {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
     } catch (err) {
-      console.error('Failed to copy text: ', err);
+      logger.error({ context: { error: err instanceof Error ? err.message : 'Unknown error' } }, 'Failed to copy text');
       alert('Failed to copy text.');
     }
   };

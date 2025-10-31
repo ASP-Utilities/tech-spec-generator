@@ -1,4 +1,5 @@
 import type { Message } from '../types';
+import logger from '../src/config/logger';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const MAX_RETRIES = 3;
@@ -30,7 +31,7 @@ export const saveChatHistoryToBackend = async (messages: Message[]): Promise<voi
   // Retry loop
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`Attempting to save chat history (attempt ${attempt}/${MAX_RETRIES})...`);
+      logger.info({ context: { attempt, maxRetries: MAX_RETRIES } }, 'Attempting to save chat history');
 
       const response = await fetch(`${API_BASE_URL}/api/chat/save`, {
         method: 'POST',
@@ -52,7 +53,7 @@ export const saveChatHistoryToBackend = async (messages: Message[]): Promise<voi
       }
 
       const result = await response.json();
-      console.log("✅ Chat history saved successfully:", result);
+      logger.info({ context: { sessionId: result.sessionId } }, 'Chat history saved successfully');
       
       // Show success notification
       showNotification('Chat saved successfully!', 'success');
@@ -60,7 +61,7 @@ export const saveChatHistoryToBackend = async (messages: Message[]): Promise<voi
 
     } catch (error) {
       lastError = error as Error;
-      console.error(`Attempt ${attempt} failed:`, error);
+      logger.error({ context: { attempt, error: (error as Error).message } }, 'Save attempt failed');
 
       // If this is a client error (4xx) or we're out of retries, throw immediately
       if (error instanceof Error && error.message.includes('Failed to save chat')) {
@@ -71,7 +72,7 @@ export const saveChatHistoryToBackend = async (messages: Message[]): Promise<voi
       // If we have retries left, wait before retrying (exponential backoff)
       if (attempt < MAX_RETRIES) {
         const waitTime = RETRY_DELAY * Math.pow(2, attempt - 1);
-        console.log(`Retrying in ${waitTime}ms...`);
+        logger.warn({ context: { waitTime, attempt, maxRetries: MAX_RETRIES } }, 'Retrying save operation');
         showNotification(`Save failed. Retrying (${attempt}/${MAX_RETRIES})...`, 'warning');
         await delay(waitTime);
       }
@@ -79,7 +80,7 @@ export const saveChatHistoryToBackend = async (messages: Message[]): Promise<voi
   }
 
   // All retries exhausted
-  console.error("❌ Failed to save chat history after all retries");
+  logger.error('Failed to save chat history after all retries');
   showNotification('Failed to save chat after multiple attempts. Please try again later.', 'error');
   throw lastError || new Error('Failed to save chat history');
 };
@@ -89,14 +90,14 @@ export const saveChatHistoryToBackend = async (messages: Message[]): Promise<voi
  * In a production app, you'd use a proper toast library like react-toastify
  */
 function showNotification(message: string, type: 'success' | 'error' | 'warning') {
-  // For now, using console with styled output
-  const styles = {
-    success: 'color: green; font-weight: bold;',
-    error: 'color: red; font-weight: bold;',
-    warning: 'color: orange; font-weight: bold;',
-  };
-
-  console.log(`%c${type.toUpperCase()}: ${message}`, styles[type]);
+  // Log the notification
+  if (type === 'error') {
+    logger.error({ context: { message, type } }, 'User notification');
+  } else if (type === 'warning') {
+    logger.warn({ context: { message, type } }, 'User notification');
+  } else {
+    logger.info({ context: { message, type } }, 'User notification');
+  }
 
   // Also show a browser alert for important messages
   if (type === 'success' || type === 'error') {

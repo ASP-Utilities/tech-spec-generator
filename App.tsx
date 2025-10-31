@@ -7,6 +7,7 @@ import type { Message } from './types';
 import { Sender } from './types';
 import { startChat, sendMessageToAI } from './services/geminiService';
 import { saveChatHistoryToBackend } from './services/backendService';
+import logger from './src/config/logger';
 
 const initialMessage: Message = {
   sender: Sender.AI,
@@ -35,7 +36,7 @@ const App: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error("Failed to parse chat history from localStorage", error);
+      logger.error({ context: { error: error instanceof Error ? error.message : 'Unknown error' } }, 'Failed to parse chat history from localStorage');
     }
     return [initialMessage];
   });
@@ -62,7 +63,7 @@ const App: React.FC = () => {
       try {
         localStorage.setItem('chatHistory', JSON.stringify(messages));
       } catch (error) {
-        console.error("Failed to save chat history to localStorage", error);
+        logger.error({ context: { error: error instanceof Error ? error.message : 'Unknown error' } }, 'Failed to save chat history to localStorage');
       }
     } else {
       // This handles the case where a new chat is started, ensuring the old one is gone.
