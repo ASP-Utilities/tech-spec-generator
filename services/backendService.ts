@@ -1,45 +1,107 @@
 import type { Message } from '../types';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second, will use exponential backoff
+
 /**
- * Sends the chat history to a backend server for storage and analysis.
- * In a real application, this would make an HTTP POST request to a dedicated API endpoint.
+ * Utility function to wait for a specified duration
+ */
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Sends the chat history to the backend server for storage.
  * 
- * IMPORTANT: This is a placeholder implementation. The 'fetch' call is commented out
- * because the backend endpoint does not exist yet. You will need to build a backend
- * service to receive and store this data.
+ * Features:
+ * - Automatic retry with exponential backoff for network errors
+ * - User notifications for success/failure
+ * - Backend generates sessionId
  * 
  * @param messages The array of messages from the completed chat session.
  */
 export const saveChatHistoryToBackend = async (messages: Message[]): Promise<void> => {
-  // A unique ID for the chat session could be generated here or on the backend.
   const chatSession = {
-    sessionId: `chat-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
     messages: messages,
     timestamp: new Date().toISOString(),
   };
 
-  console.log("Simulating sending chat history to backend:", chatSession);
+  let lastError: Error | null = null;
 
-  try {
-    /*
-    // --- UNCOMMENT AND REPLACE WITH YOUR REAL BACKEND ENDPOINT ---
-    const response = await fetch('https://your-backend-api.com/api/save-chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(chatSession),
-    });
+  // Retry loop
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`Attempting to save chat history (attempt ${attempt}/${MAX_RETRIES})...`);
 
-    if (!response.ok) {
-      throw new Error(`Backend Error: ${response.status} ${response.statusText}`);
+      const response = await fetch(`${API_BASE_URL}/api/chat/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chatSession),
+      });
+
+      if (!response.ok) {
+        // Don't retry on 4xx errors (client errors)
+        if (response.status >= 400 && response.status < 500) {
+          const errorData = await response.json().catch(() => ({ message: response.statusText }));
+          throw new Error(`Failed to save chat: ${errorData.message || response.statusText}`);
+        }
+
+        // Retry on 5xx errors (server errors)
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log("✅ Chat history saved successfully:", result);
+      
+      // Show success notification
+      showNotification('Chat saved successfully!', 'success');
+      return; // Success! Exit the function
+
+    } catch (error) {
+      lastError = error as Error;
+      console.error(`Attempt ${attempt} failed:`, error);
+
+      // If this is a client error (4xx) or we're out of retries, throw immediately
+      if (error instanceof Error && error.message.includes('Failed to save chat')) {
+        showNotification(`Error: ${error.message}`, 'error');
+        throw error;
+      }
+
+      // If we have retries left, wait before retrying (exponential backoff)
+      if (attempt < MAX_RETRIES) {
+        const waitTime = RETRY_DELAY * Math.pow(2, attempt - 1);
+        console.log(`Retrying in ${waitTime}ms...`);
+        showNotification(`Save failed. Retrying (${attempt}/${MAX_RETRIES})...`, 'warning');
+        await delay(waitTime);
+      }
     }
-
-    const result = await response.json();
-    console.log("Chat history saved successfully:", result);
-    */
-  } catch (error) {
-    console.error("Failed to save chat history:", error);
-    // In a real app, you might want to add this to a retry queue.
   }
+
+  // All retries exhausted
+  console.error("❌ Failed to save chat history after all retries");
+  showNotification('Failed to save chat after multiple attempts. Please try again later.', 'error');
+  throw lastError || new Error('Failed to save chat history');
 };
+
+/**
+ * Simple notification system
+ * In a production app, you'd use a proper toast library like react-toastify
+ */
+function showNotification(message: string, type: 'success' | 'error' | 'warning') {
+  // For now, using console with styled output
+  const styles = {
+    success: 'color: green; font-weight: bold;',
+    error: 'color: red; font-weight: bold;',
+    warning: 'color: orange; font-weight: bold;',
+  };
+
+  console.log(`%c${type.toUpperCase()}: ${message}`, styles[type]);
+
+  // Also show a browser alert for important messages
+  if (type === 'success' || type === 'error') {
+    // Use a simple alert for now - in production, replace with a toast library
+    const icon = type === 'success' ? '✅' : '❌';
+    alert(`${icon} ${message}`);
+  }
+}
